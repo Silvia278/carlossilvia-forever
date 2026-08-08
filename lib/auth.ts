@@ -7,7 +7,7 @@ export function corsHeaders(request: Request) {
   const headers = new Headers({ "vary": "Origin" });
   if (origin === allowedOrigin || origin?.startsWith("http://localhost:")) {
     headers.set("access-control-allow-origin", origin);
-    headers.set("access-control-allow-headers", "authorization, content-type");
+    headers.set("access-control-allow-headers", "authorization, content-type, x-memory-title, x-memory-date, x-memory-note, x-file-name");
     headers.set("access-control-allow-methods", "GET, POST, DELETE, OPTIONS");
   }
   return headers;

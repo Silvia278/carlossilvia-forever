@@ -16,17 +16,22 @@ export async function POST(request: Request) {
   try {
     const signedInAs = await authorize(request);
     if (!signedInAs) return json(request, { error: "登录已过期，请重新登录" }, 401);
-    const form = await request.formData();
-    const file = form.get("photo");
-    const title = String(form.get("title") ?? "").trim();
-    const memoryDate = String(form.get("memoryDate") ?? "");
-    if (!(file instanceof File) || !title || !memoryDate) return json(request, { error: "请选择照片，并填写标题和日期" }, 400);
-    if ((!file.type.startsWith("image/") && !/\.(heic|heif)$/i.test(file.name)) || file.size > 25 * 1024 * 1024) return json(request, { error: "请选择 25MB 以内的照片" }, 400);
-    const objectKey = `${Date.now()}-${crypto.randomUUID()}-${file.name.replace(/[^a-zA-Z0-9._-]/g, "") || "memory.jpg"}`;
-    await env.MEMORIES.put(objectKey, await file.arrayBuffer(), { httpMetadata: { contentType: file.type || "application/octet-stream" } });
+    const decode = (name: string) => { try { return decodeURIComponent(request.headers.get(name) ?? ""); } catch { return ""; } };
+    const fileName = decode("x-file-name");
+    const title = decode("x-memory-title").trim();
+    const memoryDate = request.headers.get("x-memory-date") ?? "";
+    const note = decode("x-memory-note").trim();
+    const contentType = request.headers.get("content-type") ?? "application/octet-stream";
+    const contentLength = Number(request.headers.get("content-length") ?? 0);
+    if (!request.body || !fileName || !title || !memoryDate) return json(request, { error: "请选择照片，并填写标题和日期" }, 400);
+    if ((!contentType.startsWith("image/") && !/\.(heic|heif)$/i.test(fileName)) || contentLength > 25 * 1024 * 1024) return json(request, { error: "请选择 25MB 以内的照片" }, 400);
+    const bytes = await request.arrayBuffer();
+    if (!bytes.byteLength || bytes.byteLength > 25 * 1024 * 1024) return json(request, { error: "请选择 25MB 以内的照片" }, 400);
+    const objectKey = `${Date.now()}-${crypto.randomUUID()}-${fileName.replace(/[^a-zA-Z0-9._-]/g, "") || "memory.jpg"}`;
+    await env.MEMORIES.put(objectKey, bytes, { httpMetadata: { contentType } });
     const [memory] = await getDb().insert(memories).values({
-      author: signedInAs, title, note: String(form.get("note") ?? "").trim(), memoryDate,
-      objectKey, contentType: file.type || "application/octet-stream", createdAt: new Date().toISOString(),
+      author: signedInAs, title, note, memoryDate,
+      objectKey, contentType, createdAt: new Date().toISOString(),
     }).returning();
     return json(request, { memory }, 201);
   } catch (error) {

@@ -92,7 +92,13 @@ export default function Home() {
     if (!(file instanceof File) || !file.size) return say("请先选择一张照片");
     setSending("memory"); say(`正在上传 ${file.name}，大照片需要一点时间……`);
     try {
-      const response = await request("/api/memories", { method:"POST", body:form });
+      const response = await request("/api/memories", { method:"POST", body:file, headers:{
+        "content-type": file.type || "application/octet-stream",
+        "x-file-name": encodeURIComponent(file.name),
+        "x-memory-title": encodeURIComponent(String(form.get("title") ?? "")),
+        "x-memory-date": String(form.get("memoryDate") ?? ""),
+        "x-memory-note": encodeURIComponent(String(form.get("note") ?? "")),
+      } });
       if (!response.ok) return say(await errorMessage(response, "照片上传失败，请重试"));
       target.reset(); say("照片上传成功，正在刷新相册 ♡"); await refresh();
     } catch { say("上传中断了，请检查网络后重试"); } finally { setSending(""); }
