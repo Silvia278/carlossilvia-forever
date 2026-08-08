@@ -1,4 +1,4 @@
-import { asc, eq } from "drizzle-orm";
+import { and, asc, eq } from "drizzle-orm";
 import { getDb } from "../../../db";
 import { comments, entries } from "../../../db/schema";
 import { authorize, json, options } from "../../../lib/auth";
@@ -37,11 +37,15 @@ export async function POST(request: Request) {
 }
 
 export async function DELETE(request: Request) {
-  if (!await authorize(request)) return json(request, { error: "请先登录" }, 401);
+  const signedInAs = await authorize(request);
+  if (!signedInAs) return json(request, { error: "请先登录" }, 401);
   const id = Number(new URL(request.url).searchParams.get("id"));
   if (!id) return json(request, { error: "无效记录" }, 400);
   const db = getDb();
+  const [entry] = await db.select().from(entries).where(eq(entries.id, id)).limit(1);
+  if (!entry) return json(request, { error: "这条内容已经不存在了" }, 404);
+  if (entry.author !== signedInAs) return json(request, { error: "只能删除自己发布的内容" }, 403);
   await db.delete(comments).where(eq(comments.entryId, id));
-  await db.delete(entries).where(eq(entries.id, id));
+  await db.delete(entries).where(and(eq(entries.id, id), eq(entries.author, signedInAs)));
   return json(request, { ok: true });
 }

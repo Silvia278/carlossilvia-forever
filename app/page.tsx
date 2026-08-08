@@ -103,6 +103,18 @@ export default function Home() {
       target.reset(); say("照片上传成功，正在刷新相册 ♡"); await refresh();
     } catch { say("上传中断了，请检查网络后重试"); } finally { setSending(""); }
   }
+  async function deleteItem(kind:"entry"|"comment"|"memory", id:number, label:string) {
+    if (!window.confirm(`确定删除这${label}吗？删除后无法恢复。`)) return;
+    const key = `delete-${kind}-${id}`;
+    setSending(key); say(`正在删除${label}……`);
+    try {
+      const paths = { entry:"/api/entries", comment:"/api/comments", memory:"/api/memories" };
+      const response = await request(`${paths[kind]}?id=${id}`, { method:"DELETE" });
+      if (!response.ok) return say(await errorMessage(response, `${label}删除失败，请重试`));
+      if (kind === "entry" && openSecret === id) setOpenSecret(null);
+      say(`${label}删除成功，正在刷新 ♡`); await refresh();
+    } catch { say("网络暂时没有回应，请检查网络后重试"); } finally { setSending(""); }
+  }
 
   async function login(event:FormEvent<HTMLFormElement>) {
     event.preventDefault(); setLoginError(""); const form = new FormData(event.currentTarget);
@@ -140,7 +152,7 @@ export default function Home() {
         {(entries.filter(e=>e.kind!=="secret").slice(-3).reverse().length ? entries.filter(e=>e.kind!=="secret").slice(-3).reverse() : [
           {id:-1,author:"Silvia",title:"今天也很想你",content:"把晚霞拍给你看，就像我们看了同一场日落。",mood:"想念",category:"Love",eventDate:today(),eventTime:"18:26",together:false,kind:"diary"},
           {id:-2,author:"Carlos",title:"晚安电话打了 48 分钟",content:"听见你的声音，一天才算完整。",mood:"开心",category:"日常",eventDate:today(),eventTime:"23:10",together:false,kind:"diary"}
-        ]).map(e=><article key={e.id} className={`mini-card ${e.author.toLowerCase()}`}><div><b>{e.author[0]}</b><span>{e.author} · {e.eventTime}</span></div><h3>{e.title}</h3><p>{e.content}</p><em>{e.mood}</em></article>)}
+        ]).map(e=><article key={e.id} className={`mini-card ${e.author.toLowerCase()}`}><div><b>{e.author[0]}</b><span>{e.author} · {e.eventTime}</span></div>{e.id>0&&e.author===author&&<button type="button" className="delete-button corner-delete" onClick={()=>deleteItem("entry",e.id,"条日记")} disabled={sending===`delete-entry-${e.id}`}>删除</button>}<h3>{e.title}</h3><p>{e.content}</p><em>{e.mood}</em></article>)}
       </div>
     </section>}
 
@@ -158,22 +170,22 @@ export default function Home() {
             <label className="check"><input type="checkbox" name="together"/>这是我们两个人共同完成的</label>
             <button className="primary" type="submit" disabled={!!sending}>{sending==="entry"?"正在保存……":"添加到今日日记"}</button>
           </form>}
-          <div className="day-list">{dayEntries.length===0?<div className="empty"><span>☼</span><h3>这一天还是空白</h3><p>写下一件小事，让对方参与到你的今天。</p></div>:dayEntries.map(e=><JournalCard key={e.id} entry={e} comments={comments.filter(c=>c.entryId===e.id)} onComment={addComment} sending={sending===`comment-${e.id}`} />)}</div>
+          <div className="day-list">{dayEntries.length===0?<div className="empty"><span>☼</span><h3>这一天还是空白</h3><p>写下一件小事，让对方参与到你的今天。</p></div>:dayEntries.map(e=><JournalCard key={e.id} entry={e} comments={comments.filter(c=>c.entryId===e.id)} onComment={addComment} onDelete={deleteItem} currentAuthor={author} sending={sending} />)}</div>
         </>}
-        {view === "timeline" && <div className="timeline">{dayEntries.length===0?<div className="empty"><span>⌛</span><h3>今天还没有时间刻度</h3></div>:dayEntries.map(e=><div className="timeline-row" key={e.id}><time>{e.eventTime}</time><i className={e.together?"together":e.author.toLowerCase()}/><JournalCard entry={e} comments={comments.filter(c=>c.entryId===e.id)} onComment={addComment} sending={sending===`comment-${e.id}`}/></div>)}</div>}
+        {view === "timeline" && <div className="timeline">{dayEntries.length===0?<div className="empty"><span>⌛</span><h3>今天还没有时间刻度</h3></div>:dayEntries.map(e=><div className="timeline-row" key={e.id}><time>{e.eventTime}</time><i className={e.together?"together":e.author.toLowerCase()}/><JournalCard entry={e} comments={comments.filter(c=>c.entryId===e.id)} onComment={addComment} onDelete={deleteItem} currentAuthor={author} sending={sending}/></div>)}</div>}
       </div>
     </section>}
 
     {tab === "memories" && <section className="memories page-section">
       <div className="section-title"><p className="eyebrow">THE DISTANCE BETWEEN US</p><h1>回忆是可以抵达的地方</h1><p>把见过的海、牵过的手，还有每一次重逢，都留在这里。</p></div>
       <form className="upload-card" onSubmit={addMemory}><div><span>＋</span><strong>放进一张新的回忆</strong><small>JPG、PNG、HEIC、WEBP · 最大 25MB</small></div><input aria-label="选择照片" name="photo" type="file" accept="image/*,.heic,.heif" required/><input name="title" placeholder="给这段回忆一个名字" required/><input name="memoryDate" type="date" defaultValue={today()} required/><input name="note" placeholder="那天，你最想记住什么？"/><button className="primary" disabled={!!sending}>{sending==="memory"?"照片上传中……":"收藏回忆"}</button></form>
-      <div className="photo-grid">{memories.map(m=><figure key={`m-${m.id}`}><img src={apiUrl(`/api/photos/${encodeURIComponent(m.objectKey)}`)} alt={m.title}/><figcaption><small>{m.memoryDate.replaceAll("-",".")}</small><h3>{m.title}</h3><p>{m.note}</p></figcaption></figure>)}{seedMemories.map((m,i)=><figure key={m.src} className={i===0?"wide":""}><img src={m.src} alt={m.title}/><figcaption><small>{m.date}</small><h3>{m.title}</h3><p>{m.note}</p></figcaption></figure>)}</div>
+      <div className="photo-grid">{memories.map(m=><figure key={`m-${m.id}`}>{m.author===author&&<button type="button" className="delete-button photo-delete" onClick={()=>deleteItem("memory",m.id,"张照片")} disabled={sending===`delete-memory-${m.id}`}>删除</button>}<img src={apiUrl(`/api/photos/${encodeURIComponent(m.objectKey)}`)} alt={m.title}/><figcaption><small>{m.memoryDate.replaceAll("-",".")} · {m.author}</small><h3>{m.title}</h3><p>{m.note}</p></figcaption></figure>)}{seedMemories.map((m,i)=><figure key={m.src} className={i===0?"wide":""}><img src={m.src} alt={m.title}/><figcaption><small>{m.date}</small><h3>{m.title}</h3><p>{m.note}</p></figcaption></figure>)}</div>
     </section>}
 
     {tab === "secrets" && <section className="secrets page-section">
       <div className="section-title"><p className="eyebrow">JUST BETWEEN YOU & ME</p><h1>只说给你听</h1><p>有些话不好意思当面说，就折好放进这里，等你来拆。</p></div>
       <form className="secret-form" onSubmit={addEntry}><input type="hidden" name="kind" value="secret"/><input type="hidden" name="eventTime" value={nowTime()}/><input type="hidden" name="mood" value="秘密"/><input type="hidden" name="category" value="Love"/><label>信封上写什么<input name="title" placeholder="比如：等你睡醒再打开" required/></label><label>只给你的话<textarea name="content" placeholder="偷偷告诉你……" required/></label><button className="primary" disabled={!!sending}>{sending==="secret"?"正在发送……":"把悄悄话封好"}</button></form>
-      <div className="letter-grid">{secrets.length===0?<div className="empty"><span>✉</span><h3>第一封信，等你来写</h3><p>它会安静地待在这里，直到对方打开。</p></div>:secrets.map(s=><button className={`letter ${s.author.toLowerCase()} ${openSecret===s.id?"opened":""}`} key={s.id} onClick={()=>setOpenSecret(openSecret===s.id?null:s.id)}><span className="seal">{s.author[0]}</span><small>{s.author} 留给你的 · {s.eventDate}</small><h3>{s.title}</h3>{openSecret===s.id?<p>{s.content}</p>:<em>轻轻点一下，拆开这封信</em>}</button>)}</div>
+      <div className="letter-grid">{secrets.length===0?<div className="empty"><span>✉</span><h3>第一封信，等你来写</h3><p>它会安静地待在这里，直到对方打开。</p></div>:secrets.map(s=><article className={`letter ${s.author.toLowerCase()} ${openSecret===s.id?"opened":""}`} key={s.id}><button type="button" className="letter-main" onClick={()=>setOpenSecret(openSecret===s.id?null:s.id)}><span className="seal">{s.author[0]}</span><small>{s.author} 留给你的 · {s.eventDate}</small><h3>{s.title}</h3>{openSecret===s.id?<p>{s.content}</p>:<em>轻轻点一下，拆开这封信</em>}</button>{s.author===author&&<button type="button" className="delete-button letter-delete" onClick={()=>deleteItem("entry",s.id,"封悄悄话")} disabled={sending===`delete-entry-${s.id}`}>删除</button>}</article>)}</div>
     </section>}
 
     {notice && <div className="toast">{notice}</div>}
@@ -181,7 +193,8 @@ export default function Home() {
   </main>;
 }
 
-function JournalCard({entry,comments,onComment,sending}:{entry:Entry;comments:Comment[];onComment:(id:number,value:string)=>Promise<void>;sending:boolean}) {
+function JournalCard({entry,comments,onComment,onDelete,currentAuthor,sending}:{entry:Entry;comments:Comment[];onComment:(id:number,value:string)=>Promise<void>;onDelete:(kind:"entry"|"comment"|"memory",id:number,label:string)=>Promise<void>;currentAuthor:string;sending:string}) {
   const [value,setValue]=useState("");
-  return <article className={`journal-card ${entry.together?"together":entry.author.toLowerCase()}`}><div className="card-meta"><b>{entry.together?"我们":entry.author}</b><span>{entry.eventTime} · {entry.category}</span><em>{entry.mood}</em></div><h3>{entry.title}</h3>{entry.content&&<p>{entry.content}</p>}{comments.map(c=><div className="comment" key={c.id}><b>{c.author[0]}</b><span>{c.content}</span></div>)}<form onSubmit={async e=>{e.preventDefault();if(!value.trim())return;await onComment(entry.id,value);setValue("")}}><input aria-label="留言" value={value} onChange={e=>setValue(e.target.value)} placeholder="给对方留句话……" disabled={sending}/><button disabled={sending}>{sending?"发送中……":"发送"}</button></form></article>
+  const commenting=sending===`comment-${entry.id}`;
+  return <article className={`journal-card ${entry.together?"together":entry.author.toLowerCase()}`}><div className="card-meta"><b>{entry.together?"我们":entry.author}</b><span>{entry.eventTime} · {entry.category}</span><em>{entry.mood}</em>{entry.author===currentAuthor&&<button type="button" className="delete-button" onClick={()=>onDelete("entry",entry.id,"条日记")} disabled={sending===`delete-entry-${entry.id}`}>删除</button>}</div><h3>{entry.title}</h3>{entry.content&&<p>{entry.content}</p>}{comments.map(c=><div className="comment" key={c.id}><b>{c.author[0]}</b><span>{c.content}</span>{c.author===currentAuthor&&<button type="button" className="delete-button comment-delete" onClick={()=>onDelete("comment",c.id,"条留言")} disabled={sending===`delete-comment-${c.id}`}>删除</button>}</div>)}<form onSubmit={async e=>{e.preventDefault();if(!value.trim())return;await onComment(entry.id,value);setValue("")}}><input aria-label="留言" value={value} onChange={e=>setValue(e.target.value)} placeholder="给对方留句话……" disabled={commenting}/><button disabled={commenting}>{commenting?"发送中……":"发送"}</button></form></article>
 }

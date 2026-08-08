@@ -1,5 +1,5 @@
 import { env } from "cloudflare:workers";
-import { desc } from "drizzle-orm";
+import { and, desc, eq } from "drizzle-orm";
 import { getDb } from "../../../db";
 import { memories } from "../../../db/schema";
 import { authorize, json, options } from "../../../lib/auth";
@@ -37,5 +37,24 @@ export async function POST(request: Request) {
   } catch (error) {
     console.error("Memory upload failed", error);
     return json(request, { error: "照片上传没有完成，请稍后重试" }, 500);
+  }
+}
+
+export async function DELETE(request: Request) {
+  try {
+    const signedInAs = await authorize(request);
+    if (!signedInAs) return json(request, { error: "请先登录" }, 401);
+    const id = Number(new URL(request.url).searchParams.get("id"));
+    if (!id) return json(request, { error: "无效照片" }, 400);
+    const db = getDb();
+    const [memory] = await db.select().from(memories).where(eq(memories.id, id)).limit(1);
+    if (!memory) return json(request, { error: "这张照片已经不存在了" }, 404);
+    if (memory.author !== signedInAs) return json(request, { error: "只能删除自己上传的照片" }, 403);
+    await env.MEMORIES.delete(memory.objectKey);
+    await db.delete(memories).where(and(eq(memories.id, id), eq(memories.author, signedInAs)));
+    return json(request, { ok: true });
+  } catch (error) {
+    console.error("Memory deletion failed", error);
+    return json(request, { error: "照片删除没有完成，请稍后重试" }, 500);
   }
 }
