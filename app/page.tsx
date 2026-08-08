@@ -45,8 +45,19 @@ export default function Home() {
     const entryData = await a.json(); const memoryData = await b.json();
     setEntries(entryData.entries ?? []); setComments(entryData.comments ?? []); setMemories(memoryData.memories ?? []);
   };
-  useEffect(() => { const savedToken = localStorage.getItem("forever-token") ?? ""; const savedAuthor = localStorage.getItem("forever-author") ?? ""; if (savedToken && savedAuthor) { setToken(savedToken); setAuthor(savedAuthor); refresh(savedToken); } setBooting(false); }, []);
-  const logout = () => { localStorage.removeItem("forever-token"); localStorage.removeItem("forever-author"); setToken(""); };
+  useEffect(() => {
+    const savedToken = sessionStorage.getItem("forever-token") ?? "";
+    const tokenAuthor = savedToken.split(".")[0];
+    if (savedToken && ["Carlos", "Silvia"].includes(tokenAuthor)) {
+      setToken(savedToken); setAuthor(tokenAuthor); refresh(savedToken);
+    }
+    localStorage.removeItem("forever-token"); localStorage.removeItem("forever-author");
+    setBooting(false);
+  }, []);
+  const logout = () => {
+    sessionStorage.removeItem("forever-token");
+    setToken(""); setEntries([]); setComments([]); setMemories([]); setLoginError("");
+  };
   const dayEntries = useMemo(() => entries.filter(e => e.eventDate === date && e.kind !== "secret"), [entries, date]);
   const secrets = useMemo(() => entries.filter(e => e.kind === "secret").reverse(), [entries]);
   const moveDate = (n:number) => { const d = new Date(`${date}T12:00:00`); d.setDate(d.getDate()+n); setDate(d.toISOString().slice(0,10)); };
@@ -54,18 +65,18 @@ export default function Home() {
 
   async function addEntry(event:FormEvent<HTMLFormElement>) {
     event.preventDefault(); const form = new FormData(event.currentTarget);
-    const body = Object.fromEntries(form); body.author = author; body.eventDate = date; body.together = form.has("together") ? "true" : "";
+    const body = Object.fromEntries(form); body.eventDate = date; body.together = form.has("together") ? "true" : "";
     const response = await request("/api/entries", { method:"POST", headers:{"content-type":"application/json"}, body:JSON.stringify({ ...body, together:form.has("together") }) });
     if (!response.ok) return say("暂时没有保存成功，请再试一次");
     event.currentTarget.reset(); setComposerOpen(false); await refresh(); say("已经写进你们的故事里了 ♡");
   }
   async function addComment(entryId:number, content:string) {
     if (!content.trim()) return;
-    await request("/api/comments", { method:"POST", headers:{"content-type":"application/json"}, body:JSON.stringify({ entryId, content, author }) });
+    await request("/api/comments", { method:"POST", headers:{"content-type":"application/json"}, body:JSON.stringify({ entryId, content }) });
     await refresh();
   }
   async function addMemory(event:FormEvent<HTMLFormElement>) {
-    event.preventDefault(); const form = new FormData(event.currentTarget); form.set("author", author);
+    event.preventDefault(); const form = new FormData(event.currentTarget);
     const response = await request("/api/memories", { method:"POST", body:form });
     if (!response.ok) return say("照片没有上传成功，请检查大小后再试");
     event.currentTarget.reset(); await refresh(); say("新的回忆已收藏 ♡");
@@ -76,7 +87,7 @@ export default function Home() {
     const response = await fetch(apiUrl("/api/login"), { method:"POST", headers:{"content-type":"application/json"}, body:JSON.stringify(Object.fromEntries(form)) });
     const data = await response.json();
     if (!response.ok) { setLoginError(data.error ?? "登录失败，请重试"); return; }
-    localStorage.setItem("forever-token", data.token); localStorage.setItem("forever-author", data.username);
+    sessionStorage.setItem("forever-token", data.token);
     setToken(data.token); setAuthor(data.username); await refresh(data.token);
   }
 
@@ -89,7 +100,7 @@ export default function Home() {
       <nav aria-label="主要导航">
         {[["home","我们的宇宙"],["diary","双人日记"],["memories","回忆相册"],["secrets","悄悄话"]].map(([id,label])=><button key={id} className={tab===id?"active":""} onClick={()=>setTab(id)}>{label}</button>)}
       </nav>
-      <div className="identity"><span>今天是</span><button onClick={logout} title="退出登录"><b className={author.toLowerCase()}>{author[0]}</b>{author} · 退出</button></div>
+      <div className="identity"><span>当前身份</span><button type="button" className="account-button" onClick={logout} aria-label={`当前是 ${author}，点击切换账号`} title="切换账号"><b className={author.toLowerCase()}>{author[0]}</b><span>{author} · 切换账号</span></button></div>
     </header>
 
     {tab === "home" && <section className="home">
