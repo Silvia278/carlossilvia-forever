@@ -6,6 +6,8 @@ interface Env {
   ASSETS: Fetcher;
   DB: D1Database;
   MEMORIES: R2Bucket;
+  AUTH_SECRET: string;
+  COUPLE_PASSWORD: string;
   IMAGES: {
     input(stream: ReadableStream): {
       transform(options: Record<string, unknown>): {

@@ -2,6 +2,11 @@
 
 import { FormEvent, useEffect, useMemo, useState } from "react";
 
+const API_BASE = typeof window !== "undefined" && window.location.hostname.endsWith("github.io")
+  ? "https://carlos-silvia-forever.jjtctftr76.chatgpt.site" : "";
+const apiUrl = (path:string) => `${API_BASE}${path}`;
+const assetUrl = (path:string) => typeof window !== "undefined" && window.location.hostname.endsWith("github.io") ? `/carlossilvia-forever${path}` : path;
+
 type Entry = { id:number; kind:string; author:string; title:string; content:string; mood:string; category:string; eventDate:string; eventTime:string; together:boolean };
 type Comment = { id:number; entryId:number; author:string; content:string };
 type Memory = { id:number; author:string; title:string; note:string; memoryDate:string; objectKey:string };
@@ -10,14 +15,17 @@ const START = new Date("2025-03-15T00:00:00+08:00");
 const today = () => new Date().toISOString().slice(0, 10);
 const nowTime = () => new Date().toTimeString().slice(0, 5);
 const seedMemories = [
-  { src:"/memories/first-photo.JPG", title:"第一张属于我们的合照", date:"2025.03.15", note:"故事从这一刻，有了我们。" },
-  { src:"/memories/polaroid.jpeg", title:"留在掌心里的我们", date:"2025.09.01", note:"一张小小的拍立得，装下很大的喜欢。" },
-  { src:"/memories/anniversary.JPG", title:"我们的第一个周年", date:"2026.03.15", note:"距离没有让爱变淡，它只是让每次见面更珍贵。" },
+  { src:assetUrl("/memories/first-photo.JPG"), title:"第一张属于我们的合照", date:"2025.03.15", note:"故事从这一刻，有了我们。" },
+  { src:assetUrl("/memories/polaroid.jpeg"), title:"留在掌心里的我们", date:"2025.09.01", note:"一张小小的拍立得，装下很大的喜欢。" },
+  { src:assetUrl("/memories/anniversary.JPG"), title:"我们的第一个周年", date:"2026.03.15", note:"距离没有让爱变淡，它只是让每次见面更珍贵。" },
 ];
 
 export default function Home() {
   const [tab, setTab] = useState("home");
   const [author, setAuthor] = useState("Silvia");
+  const [token, setToken] = useState("");
+  const [booting, setBooting] = useState(true);
+  const [loginError, setLoginError] = useState("");
   const [entries, setEntries] = useState<Entry[]>([]);
   const [comments, setComments] = useState<Comment[]>([]);
   const [memories, setMemories] = useState<Memory[]>([]);
@@ -28,13 +36,17 @@ export default function Home() {
   const [notice, setNotice] = useState("");
   const days = Math.max(1, Math.floor((Date.now() - START.getTime()) / 86400000) + 1);
 
-  const refresh = async () => {
-    const [a, b] = await Promise.all([fetch("/api/entries"), fetch("/api/memories")]);
+  const request = (path:string, init:RequestInit = {}, authToken = token) => fetch(apiUrl(path), {
+    ...init, headers: { ...Object.fromEntries(new Headers(init.headers).entries()), authorization: `Bearer ${authToken}` },
+  });
+  const refresh = async (authToken = token) => {
+    const [a, b] = await Promise.all([request("/api/entries", {}, authToken), request("/api/memories", {}, authToken)]);
+    if (a.status === 401 || b.status === 401) { logout(); return; }
     const entryData = await a.json(); const memoryData = await b.json();
     setEntries(entryData.entries ?? []); setComments(entryData.comments ?? []); setMemories(memoryData.memories ?? []);
   };
-  useEffect(() => { const saved = localStorage.getItem("forever-author"); if (saved) setAuthor(saved); refresh(); }, []);
-  const chooseAuthor = (name:string) => { setAuthor(name); localStorage.setItem("forever-author", name); };
+  useEffect(() => { const savedToken = localStorage.getItem("forever-token") ?? ""; const savedAuthor = localStorage.getItem("forever-author") ?? ""; if (savedToken && savedAuthor) { setToken(savedToken); setAuthor(savedAuthor); refresh(savedToken); } setBooting(false); }, []);
+  const logout = () => { localStorage.removeItem("forever-token"); localStorage.removeItem("forever-author"); setToken(""); };
   const dayEntries = useMemo(() => entries.filter(e => e.eventDate === date && e.kind !== "secret"), [entries, date]);
   const secrets = useMemo(() => entries.filter(e => e.kind === "secret").reverse(), [entries]);
   const moveDate = (n:number) => { const d = new Date(`${date}T12:00:00`); d.setDate(d.getDate()+n); setDate(d.toISOString().slice(0,10)); };
@@ -43,21 +55,33 @@ export default function Home() {
   async function addEntry(event:FormEvent<HTMLFormElement>) {
     event.preventDefault(); const form = new FormData(event.currentTarget);
     const body = Object.fromEntries(form); body.author = author; body.eventDate = date; body.together = form.has("together") ? "true" : "";
-    const response = await fetch("/api/entries", { method:"POST", headers:{"content-type":"application/json"}, body:JSON.stringify({ ...body, together:form.has("together") }) });
+    const response = await request("/api/entries", { method:"POST", headers:{"content-type":"application/json"}, body:JSON.stringify({ ...body, together:form.has("together") }) });
     if (!response.ok) return say("暂时没有保存成功，请再试一次");
     event.currentTarget.reset(); setComposerOpen(false); await refresh(); say("已经写进你们的故事里了 ♡");
   }
   async function addComment(entryId:number, content:string) {
     if (!content.trim()) return;
-    await fetch("/api/comments", { method:"POST", headers:{"content-type":"application/json"}, body:JSON.stringify({ entryId, content, author }) });
+    await request("/api/comments", { method:"POST", headers:{"content-type":"application/json"}, body:JSON.stringify({ entryId, content, author }) });
     await refresh();
   }
   async function addMemory(event:FormEvent<HTMLFormElement>) {
     event.preventDefault(); const form = new FormData(event.currentTarget); form.set("author", author);
-    const response = await fetch("/api/memories", { method:"POST", body:form });
+    const response = await request("/api/memories", { method:"POST", body:form });
     if (!response.ok) return say("照片没有上传成功，请检查大小后再试");
     event.currentTarget.reset(); await refresh(); say("新的回忆已收藏 ♡");
   }
+
+  async function login(event:FormEvent<HTMLFormElement>) {
+    event.preventDefault(); setLoginError(""); const form = new FormData(event.currentTarget);
+    const response = await fetch(apiUrl("/api/login"), { method:"POST", headers:{"content-type":"application/json"}, body:JSON.stringify(Object.fromEntries(form)) });
+    const data = await response.json();
+    if (!response.ok) { setLoginError(data.error ?? "登录失败，请重试"); return; }
+    localStorage.setItem("forever-token", data.token); localStorage.setItem("forever-author", data.username);
+    setToken(data.token); setAuthor(data.username); await refresh(data.token);
+  }
+
+  if (booting) return <main className="login-page"><div className="login-card"><p>正在翻开我们的故事……</p></div></main>;
+  if (!token) return <main className="login-page"><div className="login-photo"><img src={assetUrl("/memories/polaroid.jpeg")} alt="我们的合照"/><span className="tape"/></div><form className="login-card" onSubmit={login}><div className="login-mark"><span>S</span><i>∞</i><span>C</span></div><p className="eyebrow">OUR PRIVATE UNIVERSE</p><h1>欢迎回到<br/>我们的故事里</h1><p>两座城市，同一本日记。<br/>请选择你是谁，再轻轻推开这扇门。</p><label>你是谁<select name="username" defaultValue="Silvia"><option>Silvia</option><option>Carlos</option></select></label><label>属于我们的密码<input name="password" type="password" autoComplete="current-password" placeholder="输入密码" required/></label>{loginError&&<div className="login-error">{loginError}</div>}<button className="primary" type="submit">进入我们的宇宙 <span>↗</span></button><small>SINCE 15.03.2025 · FOR OUR EYES ONLY</small></form></main>;
 
   return <main>
     <header className="topbar">
@@ -65,7 +89,7 @@ export default function Home() {
       <nav aria-label="主要导航">
         {[["home","我们的宇宙"],["diary","双人日记"],["memories","回忆相册"],["secrets","悄悄话"]].map(([id,label])=><button key={id} className={tab===id?"active":""} onClick={()=>setTab(id)}>{label}</button>)}
       </nav>
-      <div className="identity"><span>今天是</span><button onClick={()=>chooseAuthor(author === "Silvia" ? "Carlos" : "Silvia")}><b className={author.toLowerCase()}>{author[0]}</b>{author}⌄</button></div>
+      <div className="identity"><span>今天是</span><button onClick={logout} title="退出登录"><b className={author.toLowerCase()}>{author[0]}</b>{author} · 退出</button></div>
     </header>
 
     {tab === "home" && <section className="home">
@@ -75,7 +99,7 @@ export default function Home() {
         <p className="intro">隔着时区分享日落，也在同一本日记里醒来。<br/>这里收藏每一个普通，却因为彼此而特别的日子。</p>
         <button className="primary" onClick={()=>{setTab("diary");setComposerOpen(true)}}>写下今天 <span>↗</span></button>
       </div>
-      <div className="hero-photo"><img src="/memories/polaroid.jpeg" alt="Carlos 与 Silvia 的合照"/><span className="tape"/><p>to the moon<br/>& back</p></div>
+      <div className="hero-photo"><img src={assetUrl("/memories/polaroid.jpeg")} alt="Carlos 与 Silvia 的合照"/><span className="tape"/><p>to the moon<br/>& back</p></div>
       <div className="counter-card"><small>WE HAVE BEEN IN LOVE FOR</small><div><strong>{days.toLocaleString()}</strong><span>天</span></div><p>还会有很多很多天 ···</p></div>
       <div className="distance-line"><span>✦</span><i/><p>跨越距离，抵达你</p><i/><span>✦</span></div>
       <div className="recent-block"><div><p className="eyebrow">RECENT MOMENTS</p><h2>刚刚发生的小事</h2></div><button onClick={()=>setTab("diary")}>查看全部 →</button></div>
@@ -110,7 +134,7 @@ export default function Home() {
     {tab === "memories" && <section className="memories page-section">
       <div className="section-title"><p className="eyebrow">THE DISTANCE BETWEEN US</p><h1>回忆是可以抵达的地方</h1><p>把见过的海、牵过的手，还有每一次重逢，都留在这里。</p></div>
       <form className="upload-card" onSubmit={addMemory}><div><span>＋</span><strong>放进一张新的回忆</strong><small>JPG、PNG、WEBP · 最大 10MB</small></div><input aria-label="选择照片" name="photo" type="file" accept="image/*" required/><input name="title" placeholder="给这段回忆一个名字" required/><input name="memoryDate" type="date" defaultValue={today()} required/><input name="note" placeholder="那天，你最想记住什么？"/><button className="primary">收藏回忆</button></form>
-      <div className="photo-grid">{memories.map(m=><figure key={`m-${m.id}`}><img src={`/api/photos/${encodeURIComponent(m.objectKey)}`} alt={m.title}/><figcaption><small>{m.memoryDate.replaceAll("-",".")}</small><h3>{m.title}</h3><p>{m.note}</p></figcaption></figure>)}{seedMemories.map((m,i)=><figure key={m.src} className={i===0?"wide":""}><img src={m.src} alt={m.title}/><figcaption><small>{m.date}</small><h3>{m.title}</h3><p>{m.note}</p></figcaption></figure>)}</div>
+      <div className="photo-grid">{memories.map(m=><figure key={`m-${m.id}`}><img src={apiUrl(`/api/photos/${encodeURIComponent(m.objectKey)}`)} alt={m.title}/><figcaption><small>{m.memoryDate.replaceAll("-",".")}</small><h3>{m.title}</h3><p>{m.note}</p></figcaption></figure>)}{seedMemories.map((m,i)=><figure key={m.src} className={i===0?"wide":""}><img src={m.src} alt={m.title}/><figcaption><small>{m.date}</small><h3>{m.title}</h3><p>{m.note}</p></figcaption></figure>)}</div>
     </section>}
 
     {tab === "secrets" && <section className="secrets page-section">
