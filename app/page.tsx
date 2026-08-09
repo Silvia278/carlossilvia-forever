@@ -18,6 +18,7 @@ const part = (parts:Intl.DateTimeFormatPart[], type:string) => parts.find(item=>
 const today = () => { const parts=singaporeParts({year:"numeric",month:"2-digit",day:"2-digit"}); return `${part(parts,"year")}-${part(parts,"month")}-${part(parts,"day")}`; };
 const nowTime = () => { const parts=singaporeParts({hour:"2-digit",minute:"2-digit",hourCycle:"h23"}); return `${part(parts,"hour")}:${part(parts,"minute")}`; };
 const shiftDate = (value:string, amount:number) => { const [year,month,day]=value.split("-").map(Number); return new Date(Date.UTC(year,month-1,day+amount)).toISOString().slice(0,10); };
+const utf8Text = (value:string) => { const content=strToU8(value); const result=new Uint8Array(content.length+3); result.set([0xef,0xbb,0xbf]); result.set(content,3); return result; };
 const seedMemories = [
   { src:assetUrl("/memories/first-photo.JPG"), title:"第一张属于我们的合照", date:"2025.03.15", note:"故事从这一刻，有了我们。" },
   { src:assetUrl("/memories/polaroid.jpeg"), title:"留在掌心里的我们", date:"2025.09.01", note:"一张小小的拍立得，装下很大的喜欢。" },
@@ -125,13 +126,15 @@ export default function Home() {
       const files:Record<string,Uint8Array> = {};
       const backup = { exportedAt:new Date().toISOString(), timeZone:"Asia/Singapore", couple:"Carlos & Silvia", entries, comments, memories };
       files["我们的回忆数据.json"] = strToU8(JSON.stringify(backup,null,2));
-      const diaryText = entries.map(entry=>{
-        const label=entry.kind==="secret"?"悄悄话":"日记";
+      const formatEntries = (items:Entry[],label:string) => items.map(entry=>{
         const replies=comments.filter(comment=>comment.entryId===entry.id).map(comment=>`  ${comment.author} 回复：${comment.content}`).join("\n");
         return `【${label}】${entry.eventDate} ${entry.eventTime} · ${entry.author}\n${entry.title}\n${entry.content}${replies?`\n${replies}`:""}`;
       }).join("\n\n————————————\n\n");
-      files["我们的日记.txt"] = strToU8(diaryText || "还没有写下日记。",true);
-      files["备份说明.txt"] = strToU8("Carlos & Silvia 的完整回忆备份\n\n包含：日记、悄悄话、留言、回忆资料和照片原图。\n请把这个 ZIP 文件保存在安全的私人网盘或硬盘中，不要公开分享。",true);
+      const diaryText=formatEntries(entries.filter(entry=>entry.kind!=="secret"),"日记");
+      const secretText=formatEntries(entries.filter(entry=>entry.kind==="secret"),"悄悄话");
+      files["我们的日记.txt"] = utf8Text(diaryText || "还没有写下日记。");
+      files["我们的悄悄话.txt"] = utf8Text(secretText || "还没有写下悄悄话。");
+      files["备份说明.txt"] = utf8Text("Carlos & Silvia 的完整回忆备份\n\n包含：日记、悄悄话、留言、回忆资料和照片原图。\n所有 TXT 文稿均采用适用于 macOS 的 UTF-8 编码。\n请把这个 ZIP 文件保存在安全的私人网盘或硬盘中，不要公开分享。");
       const safeName=(value:string)=>value.replace(/[\\/:*?\"<>|]/g,"-").slice(0,60) || "回忆";
       for (const memory of memories) {
         const response=await request(`/api/photos/${encodeURIComponent(memory.objectKey)}`,{cache:"no-store"});
