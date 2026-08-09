@@ -1,6 +1,7 @@
 "use client";
 
 import { FormEvent, useEffect, useMemo, useState } from "react";
+import { strToU8, zipSync } from "fflate";
 
 const API_BASE = typeof window !== "undefined" && window.location.hostname.endsWith("github.io")
   ? "https://carlos-silvia-forever.jjtctftr76.chatgpt.site" : "";
@@ -38,7 +39,7 @@ export default function Home() {
   const [composerOpen, setComposerOpen] = useState(false);
   const [notice, setNotice] = useState("");
   const [sending, setSending] = useState("");
-  const days = Math.max(1, Math.floor((Date.now() - START.getTime()) / 86400000) + 1);
+  const days = Math.max(0, Math.floor((Date.now() - START.getTime()) / 86400000));
 
   const request = (path:string, init:RequestInit = {}, authToken = token) => fetch(apiUrl(path), {
     ...init, headers: { ...Object.fromEntries(new Headers(init.headers).entries()), authorization: `Bearer ${authToken}` },
@@ -118,6 +119,38 @@ export default function Home() {
       say(`${label}删除成功，正在刷新 ♡`); await refresh();
     } catch { say("网络暂时没有回应，请检查网络后重试"); } finally { setSending(""); }
   }
+  async function exportBackup() {
+    setSending("backup"); say("正在整理全部回忆和原图，请稍候……");
+    try {
+      const files:Record<string,Uint8Array> = {};
+      const backup = { exportedAt:new Date().toISOString(), timeZone:"Asia/Singapore", couple:"Carlos & Silvia", entries, comments, memories };
+      files["我们的回忆数据.json"] = strToU8(JSON.stringify(backup,null,2));
+      const diaryText = entries.map(entry=>{
+        const label=entry.kind==="secret"?"悄悄话":"日记";
+        const replies=comments.filter(comment=>comment.entryId===entry.id).map(comment=>`  ${comment.author} 回复：${comment.content}`).join("\n");
+        return `【${label}】${entry.eventDate} ${entry.eventTime} · ${entry.author}\n${entry.title}\n${entry.content}${replies?`\n${replies}`:""}`;
+      }).join("\n\n————————————\n\n");
+      files["我们的日记.txt"] = strToU8(diaryText || "还没有写下日记。",true);
+      files["备份说明.txt"] = strToU8("Carlos & Silvia 的完整回忆备份\n\n包含：日记、悄悄话、留言、回忆资料和照片原图。\n请把这个 ZIP 文件保存在安全的私人网盘或硬盘中，不要公开分享。",true);
+      const safeName=(value:string)=>value.replace(/[\\/:*?\"<>|]/g,"-").slice(0,60) || "回忆";
+      for (const memory of memories) {
+        const response=await request(`/api/photos/${encodeURIComponent(memory.objectKey)}`,{cache:"no-store"});
+        if(!response.ok) throw new Error(`无法读取照片：${memory.title}`);
+        const extension=memory.objectKey.match(/\.([a-zA-Z0-9]{2,5})$/)?.[1]?.toLowerCase() || "jpg";
+        files[`照片/${memory.memoryDate}-${safeName(memory.title)}-${memory.id}.${extension}`]=new Uint8Array(await response.arrayBuffer());
+      }
+      for (let index=0;index<seedMemories.length;index++) {
+        const memory=seedMemories[index]; const response=await fetch(memory.src,{cache:"no-store"});
+        if(!response.ok) throw new Error(`无法读取照片：${memory.title}`);
+        const extension=memory.src.match(/\.([a-zA-Z0-9]{2,5})$/)?.[1]?.toLowerCase() || "jpg";
+        files[`照片/${memory.date.replaceAll(".","-")}-${safeName(memory.title)}-初始${index+1}.${extension}`]=new Uint8Array(await response.arrayBuffer());
+      }
+      say("正在生成 ZIP 备份包……");
+      const archive=zipSync(files,{level:0}); const url=URL.createObjectURL(new Blob([archive],{type:"application/zip"}));
+      const link=document.createElement("a"); link.href=url; link.download=`Carlos-Silvia-全部回忆-${today()}.zip`; document.body.appendChild(link); link.click(); link.remove();
+      setTimeout(()=>URL.revokeObjectURL(url),30000); say("全部回忆已成功导出 ♡");
+    } catch(error) { say(error instanceof Error?`${error.message}，请重试`:"备份生成失败，请重试"); } finally { setSending(""); }
+  }
 
   async function login(event:FormEvent<HTMLFormElement>) {
     event.preventDefault(); setLoginError(""); const form = new FormData(event.currentTarget);
@@ -192,7 +225,7 @@ export default function Home() {
     </section>}
 
     {notice && <div className="toast">{notice}</div>}
-    <footer><span>S</span><i>∞</i><span>C</span><p>无论相隔多远，我们始终在同一个故事里。</p><small>CARLOS & SILVIA · FOREVER, ON PURPOSE.</small></footer>
+    <footer><span>S</span><i>∞</i><span>C</span><p>无论相隔多远，我们始终在同一个故事里。</p><button type="button" className="backup-button" onClick={exportBackup} disabled={!!sending}>{sending==="backup"?"正在整理全部回忆……":"↓ 导出全部回忆"}</button><small>CARLOS & SILVIA · FOREVER, ON PURPOSE.</small></footer>
   </main>;
 }
 
