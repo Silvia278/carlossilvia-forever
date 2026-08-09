@@ -12,8 +12,11 @@ type Comment = { id:number; entryId:number; author:string; content:string };
 type Memory = { id:number; author:string; title:string; note:string; memoryDate:string; objectKey:string };
 
 const START = new Date("2025-03-15T00:00:00+08:00");
-const today = () => new Date().toISOString().slice(0, 10);
-const nowTime = () => new Date().toTimeString().slice(0, 5);
+const singaporeParts = (options:Intl.DateTimeFormatOptions) => new Intl.DateTimeFormat("en-CA", { timeZone:"Asia/Singapore", ...options }).formatToParts(new Date());
+const part = (parts:Intl.DateTimeFormatPart[], type:string) => parts.find(item=>item.type===type)?.value ?? "";
+const today = () => { const parts=singaporeParts({year:"numeric",month:"2-digit",day:"2-digit"}); return `${part(parts,"year")}-${part(parts,"month")}-${part(parts,"day")}`; };
+const nowTime = () => { const parts=singaporeParts({hour:"2-digit",minute:"2-digit",hourCycle:"h23"}); return `${part(parts,"hour")}:${part(parts,"minute")}`; };
+const shiftDate = (value:string, amount:number) => { const [year,month,day]=value.split("-").map(Number); return new Date(Date.UTC(year,month-1,day+amount)).toISOString().slice(0,10); };
 const seedMemories = [
   { src:assetUrl("/memories/first-photo.JPG"), title:"第一张属于我们的合照", date:"2025.03.15", note:"故事从这一刻，有了我们。" },
   { src:assetUrl("/memories/polaroid.jpeg"), title:"留在掌心里的我们", date:"2025.09.01", note:"一张小小的拍立得，装下很大的喜欢。" },
@@ -62,7 +65,7 @@ export default function Home() {
   };
   const dayEntries = useMemo(() => entries.filter(e => e.eventDate === date && e.kind !== "secret"), [entries, date]);
   const secrets = useMemo(() => entries.filter(e => e.kind === "secret").reverse(), [entries]);
-  const moveDate = (n:number) => { const d = new Date(`${date}T12:00:00`); d.setDate(d.getDate()+n); setDate(d.toISOString().slice(0,10)); };
+  const moveDate = (n:number) => setDate(current=>shiftDate(current,n));
   const say = (text:string) => { setNotice(text); setTimeout(()=>setNotice(""), 2500); };
   const errorMessage = async (response:Response, fallback:string) => {
     try { const data = await response.json(); return data.error || fallback; } catch { return fallback; }
@@ -141,7 +144,7 @@ export default function Home() {
       <div className="hero-copy">
         <p className="eyebrow">CARLOS & SILVIA · SINCE 15.03.2025</p>
         <h1>世界很大，<br/>而我的坐标是你。</h1>
-        <p className="intro">隔着时区分享日落，也在同一本日记里醒来。<br/>这里收藏每一个普通，却因为彼此而特别的日子。</p>
+        <p className="intro">隔着国界，却共享同一刻日落，也在同一本日记里醒来。<br/>这里收藏每一个普通，却因为彼此而特别的日子。</p>
         <button className="primary" onClick={()=>{setTab("diary");setComposerOpen(true)}}>写下今天 <span>↗</span></button>
       </div>
       <div className="hero-photo"><img src={assetUrl("/memories/polaroid.jpeg")} alt="Carlos 与 Silvia 的合照"/><span className="tape"/><p>to the moon<br/>& back</p></div>
@@ -179,7 +182,7 @@ export default function Home() {
     {tab === "memories" && <section className="memories page-section">
       <div className="section-title"><p className="eyebrow">THE DISTANCE BETWEEN US</p><h1>回忆是可以抵达的地方</h1><p>把见过的海、牵过的手，还有每一次重逢，都留在这里。</p></div>
       <form className="upload-card" onSubmit={addMemory}><div><span>＋</span><strong>放进一张新的回忆</strong><small>JPG、PNG、HEIC、WEBP · 最大 25MB</small></div><input aria-label="选择照片" name="photo" type="file" accept="image/*,.heic,.heif" required/><input name="title" placeholder="给这段回忆一个名字" required/><input name="memoryDate" type="date" defaultValue={today()} required/><input name="note" placeholder="那天，你最想记住什么？"/><button className="primary" disabled={!!sending}>{sending==="memory"?"照片上传中……":"收藏回忆"}</button></form>
-      <div className="photo-grid">{memories.map(m=><figure key={`m-${m.id}`}>{m.author===author&&<button type="button" className="delete-button photo-delete" onClick={()=>deleteItem("memory",m.id,"张照片")} disabled={sending===`delete-memory-${m.id}`}>删除</button>}<img src={apiUrl(`/api/photos/${encodeURIComponent(m.objectKey)}`)} alt={m.title}/><figcaption><small>{m.memoryDate.replaceAll("-",".")} · {m.author}</small><h3>{m.title}</h3><p>{m.note}</p></figcaption></figure>)}{seedMemories.map((m,i)=><figure key={m.src} className={i===0?"wide":""}><img src={m.src} alt={m.title}/><figcaption><small>{m.date}</small><h3>{m.title}</h3><p>{m.note}</p></figcaption></figure>)}</div>
+      <div className="photo-grid">{memories.map(m=><figure key={`m-${m.id}`}>{m.author===author&&<button type="button" className="delete-button photo-delete" onClick={()=>deleteItem("memory",m.id,"张照片")} disabled={sending===`delete-memory-${m.id}`}>删除</button>}<ProtectedPhoto memory={m} token={token}/><figcaption><small>{m.memoryDate.replaceAll("-",".")} · {m.author}</small><h3>{m.title}</h3><p>{m.note}</p></figcaption></figure>)}{seedMemories.map((m,i)=><figure key={m.src} className={i===0?"wide":""}><img src={m.src} alt={m.title}/><figcaption><small>{m.date}</small><h3>{m.title}</h3><p>{m.note}</p></figcaption></figure>)}</div>
     </section>}
 
     {tab === "secrets" && <section className="secrets page-section">
@@ -191,6 +194,23 @@ export default function Home() {
     {notice && <div className="toast">{notice}</div>}
     <footer><span>S</span><i>∞</i><span>C</span><p>无论相隔多远，我们始终在同一个故事里。</p><small>CARLOS & SILVIA · FOREVER, ON PURPOSE.</small></footer>
   </main>;
+}
+
+function ProtectedPhoto({memory,token}:{memory:Memory;token:string}) {
+  const [src,setSrc]=useState("");
+  const [failed,setFailed]=useState(false);
+  useEffect(()=>{
+    let objectUrl=""; let cancelled=false;
+    setSrc(""); setFailed(false);
+    fetch(apiUrl(`/api/photos/${encodeURIComponent(memory.objectKey)}`), { headers:{authorization:`Bearer ${token}`}, cache:"no-store" })
+      .then(response=>{if(!response.ok)throw new Error("photo");return response.blob()})
+      .then(blob=>{if(cancelled)return;objectUrl=URL.createObjectURL(blob);setSrc(objectUrl)})
+      .catch(()=>{if(!cancelled)setFailed(true)});
+    return ()=>{cancelled=true;if(objectUrl)URL.revokeObjectURL(objectUrl)};
+  },[memory.objectKey,token]);
+  if (failed) return <div className="photo-loading">照片读取失败，请刷新重试</div>;
+  if (!src) return <div className="photo-loading">正在安全读取照片…</div>;
+  return <img src={src} alt={memory.title}/>;
 }
 
 function JournalCard({entry,comments,onComment,onDelete,currentAuthor,sending}:{entry:Entry;comments:Comment[];onComment:(id:number,value:string)=>Promise<void>;onDelete:(kind:"entry"|"comment"|"memory",id:number,label:string)=>Promise<void>;currentAuthor:string;sending:string}) {

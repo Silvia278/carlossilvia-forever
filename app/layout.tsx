@@ -3,7 +3,7 @@ import "./globals.css";
 
 export const metadata: Metadata = {
   title: "Carlos & Silvia · Forever",
-  description: "隔着时区分享日落，也在同一本日记里醒来。属于 Carlos 与 Silvia 的双人日记和回忆空间。",
+  description: "隔着国界，共享同一刻日落，也在同一本日记里醒来。属于 Carlos 与 Silvia 的双人日记和回忆空间。",
   icons: { icon: "/favicon.svg" },
   openGraph: {
     title: "Carlos & Silvia · Forever",
